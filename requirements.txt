@@ -1,0 +1,12 @@
+# 本工作台运行所需的最小依赖。
+# FaceFusion 自身的 requirements.txt（由 setup 脚本安装）已覆盖其中多数，
+# 这里保留一份自包含清单，便于需要单独部署工作台本体的场景。
+
+numpy>=1.26
+opencv-python>=4.10
+onnxruntime-gpu==1.20.1
+
+# 可选：透视抽取/回填的 GPU 重映射加速（grid_sample）。
+# 未安装 torch，或 torch 无 CUDA 时，会自动回退到 CPU（仍可正常换脸，只是更慢）。
+# 如需 GPU 重映射，请按 https://pytorch.org 安装与你的 CUDA 匹配的 torch 版本，例如：
+#   pip install torch --index-url https://download.pytorch.org/whl/cu124

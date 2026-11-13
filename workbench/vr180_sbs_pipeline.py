@@ -605,7 +605,7 @@ def _facefusion_headless_run(
     reference_frame: int = 0,
     progress=None,
 ) -> None:
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(os.environ.get('FACEFUSION_HOME') or Path(__file__).resolve().parents[1])
     facefusion_entry = repo_root / 'facefusion.py'
 
     processors = ['face_swapper']

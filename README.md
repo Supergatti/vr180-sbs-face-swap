@@ -8,28 +8,35 @@
 
 - `workbench/` — 工作台本体（HTTP 服务 + 前端 + 透视/换脸/回填管线）
 - `facefusion/` — 对 FaceFusion 的一处小补丁（进度/预览回传，可选）
+- `scripts/` — 依赖安装与权重下载脚本
 - `docs/` — 实施计划与检测思路
 
-## 依赖
+## 一键安装（Windows）
 
-- Python 3.10（推荐 conda 环境名为 `facefusion`）
-- [FaceFusion](https://github.com/facefusion/facefusion)：提供换脸 / 增强模型与 `headless-run` 入口
-- FFmpeg / FFprobe 在 PATH
-- 模型权重：
-  - FaceFusion 模型（inswapper 等）按 FaceFusion 文档放置
-  - 粗检测模型 `yoloface_12n-vr180.onnx`，来自 [Glat0s/yolo-face 的 vr 发布](https://github.com/Glat0s/yolo-face/releases/tag/vr)，SHA-256 `8d5e9187fe5aa8f95be7a3267802639299fb39df969407d22bc379eed9aaf1e1`，放到仓库根目录的 `.assets/models/`
+前置：已安装 [Miniconda](https://docs.conda.io/en/latest/miniconda.html)（或 Anaconda）、[Git](https://git-scm.com/)，且 `ffmpeg` / `ffprobe` 在 PATH。
 
-## 安装
-
-1. 在同一环境安装 FaceFusion（或复用已有的 FaceFusion 目录）。
-2. 把 `facefusion/workbench_progress.py` 复制到 FaceFusion 的 `facefusion/` 目录，并按 `facefusion/workbench-progress.patch` 给 4 个文件打补丁。这一步只影响进度与预览回传，**跳过也能正常换脸**，只是没有实时进度。
-3. 下载 `yoloface_12n-vr180.onnx` 放到 `.assets/models/`。
-
-## 使用
+在仓库根目录打开 PowerShell，运行：
 
 ```powershell
-python -B -u workbench/server.py --port 8080
+powershell -ExecutionPolicy Bypass -File setup.ps1
 ```
+
+脚本会依次：
+
+1. 创建（或复用）conda 环境 `facefusion`（Python 3.10）；
+2. 把 FaceFusion **3.1.2** 浅克隆到 `.facefusion/` 并安装其依赖（含 onnxruntime-gpu）；
+3. 自动下载本工作台专有的 VR180 检测模型 `yoloface_12n-vr180.onnx`（SHA-256 校验）；
+4. 应用进度回传补丁（可选，失败不阻断）。
+
+FaceFusion 自身的换脸/增强模型（inswapper、gfpgan 等）会在**首次换脸时由 FaceFusion 自动下载**，无需手动处理。
+
+## 启动
+
+```powershell
+powershell -ExecutionPolicy Bypass -File start.ps1
+```
+
+（Windows 资源管理器里也可双击 `start.bat`。）
 
 浏览器打开 http://127.0.0.1:8080/ ：
 
@@ -40,8 +47,23 @@ python -B -u workbench/server.py --port 8080
 
 分步测试入口 http://127.0.0.1:8080/test 可逐步执行「读取 → 透视导出 → 换脸 → 回填」。
 
+### 推理设备
+
+「推理设备」下拉可选：
+
+- **CUDA · GPU** — onnxruntime 的 CUDAExecutionProvider，最稳，默认。
+- **TensorRT · GPU** — onnxruntime 的 TensorrtExecutionProvider，换脸与增强更快；首次运行每个模型会花一些时间构建并缓存 TRT 引擎（缓存于 `.facefusion/.caches`），之后复用。
+- **CPU** — 无 GPU 时兜底。
+
+## 手动安装（不推荐）
+
+1. 在同一环境安装 FaceFusion 3.1.2（或复用已有的 FaceFusion 目录，将其根目录路径写入环境变量 `FACEFUSION_HOME`）。
+2. 把 `facefusion/workbench_progress.py` 复制到 FaceFusion 的 `facefusion/` 目录，并按 `facefusion/workbench-progress.patch` 给 4 个文件打补丁（可选，仅影响进度回传）。
+3. 下载 `yoloface_12n-vr180.onnx` 放到 `.assets/models/`，或运行 `python scripts/download-models.py`。
+
 ## 说明
 
 - 只针对每眼 180° ERP 的横向 SBS；浏览器预览是平面 SBS，头显自动识别依赖播放器与空间元数据。
-- `server.py` 检测到当前解释器缺少 onnxruntime 时，会自动切到 `facefusion` conda 环境重启，不必手动激活。
-- 生成文件写在 `workbench/.workbench/jobs`，该目录及 `.assets/` 已在 `.gitignore` 中排除。
+- `server.py` 检测到当前解释器缺少 onnxruntime 时，会自动切到 `facefusion` conda 环境重启。
+- 透视抽取/逆回填的重映射优先使用 `torch.cuda`，其次是 `cv2.cuda`，都没有则退回 CPU（仍可换脸，仅更慢）。可选安装带 CUDA 的 torch 以启用 GPU 重映射。
+- 生成文件写在 `workbench/.workbench/jobs`；`.assets/`、`.workbench/`、`.facefusion/` 已在 `.gitignore` 中排除。

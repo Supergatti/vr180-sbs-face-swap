@@ -5,6 +5,7 @@ __pycache__/
 # 本地运行时与模型权重
 .assets/
 .workbench/
+.facefusion/
 
 # 上传的媒体与生成产物
 *.mp4
