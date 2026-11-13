@@ -102,24 +102,19 @@ def image_url(image, max_width=1440):
     return 'data:image/jpeg;base64,' + base64.b64encode(data).decode('ascii')
 
 
-@lru_cache(maxsize=3)
+@lru_cache(maxsize=2)
 def detector(provider):
     import onnxruntime as ort
 
     if not MODEL.is_file():
         raise ValueError(f'Missing YOLOFace VR180 weights: {MODEL}')
-    selected = {'cuda': 'CUDAExecutionProvider', 'tensorrt': 'TensorrtExecutionProvider', 'cpu': 'CPUExecutionProvider'}[provider]
+    selected = 'CUDAExecutionProvider' if provider == 'cuda' else 'CPUExecutionProvider'
     if selected not in ort.get_available_providers():
-        raise ValueError(f'{selected} unavailable. Select CPU or fix the {provider.upper()} environment.')
-    if provider == 'cuda':
-        providers = [(selected, {'cudnn_conv_algo_search': 'HEURISTIC'}), 'CPUExecutionProvider']
-    elif provider == 'tensorrt':
-        providers = [selected, 'CUDAExecutionProvider', 'CPUExecutionProvider']
-    else:
-        providers = [selected]
+        raise ValueError(f'{selected} unavailable. Select CPU or fix the CUDA environment.')
+    providers = [(selected, {'cudnn_conv_algo_search': 'HEURISTIC'}), 'CPUExecutionProvider'] if provider == 'cuda' else [selected]
     session = ort.InferenceSession(str(MODEL), providers=providers)
     if session.get_providers()[0] != selected:
-        raise ValueError(f'{selected} failed to load for the detector. Select CPU or fix the environment.')
+        raise ValueError('CUDA failed to load for the detector. Select CPU or fix the CUDA environment.')
     return session
 
 
@@ -233,7 +228,7 @@ def preview_crops(payload):
 
 def execution_provider(payload):
     provider = payload.get('provider', 'cuda')
-    if provider not in {'cuda', 'cpu', 'tensorrt'}:
+    if provider not in {'cuda', 'cpu'}:
         raise ValueError('Invalid execution provider.')
     return provider
 

@@ -52,7 +52,6 @@ powershell -ExecutionPolicy Bypass -File start.ps1
 「推理设备」下拉可选：
 
 - **CUDA · GPU** — onnxruntime 的 CUDAExecutionProvider，最稳，默认。
-- **TensorRT · GPU** — onnxruntime 的 TensorrtExecutionProvider，换脸与增强更快；首次运行每个模型会花一些时间构建并缓存 TRT 引擎（缓存于 `.facefusion/.caches`），之后复用。
 - **CPU** — 无 GPU 时兜底。
 
 ## 手动安装（不推荐）
