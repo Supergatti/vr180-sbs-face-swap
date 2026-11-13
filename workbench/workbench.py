@@ -311,9 +311,15 @@ def launch(job, face, provider):
     video, params, dyaw, dpitch, reference = job['inputs']
     settings = folder / 'camera_params.json'
     last_preview = 0.0
+    last_console = 0.0
+    stage_order = {'export': 1, 'swap': 2, 'refill': 3}
+    phase_labels = {'prepare': '准备', 'project': '透视导出', 'finalize': '收尾',
+                    'analyse': '分析', 'extract': '提取帧', 'merge': '合成', 'audio': '音频',
+                    'face_swapper': '换脸', 'face_enhancer': '人脸增强'}
+    eye_labels = {'left': '左眼', 'right': '右眼'}
 
     def report(phase=None, completed=None, total=None, frame=None, images=None, jpeg=None, eye=None, message=None):
-        nonlocal last_preview
+        nonlocal last_preview, last_console
         now = time.monotonic()
         preview = base64.b64decode(jpeg) if jpeg else None
         if images and (now - last_preview >= .9 or completed == total):
@@ -341,6 +347,20 @@ def launch(job, face, provider):
                 job.setdefault('preview_bytes', deque(maxlen=5)).append((str(sequence), preview))
                 job['preview'] = {'sequence': sequence, 'stage': job['stage'], 'phase': phase,
                                   'eye': eye, 'frame': params.start_frame + frame}
+        if completed is not None and total and total > 0 and (now - last_console >= 2.0 or completed >= total):
+            last_console = now
+            step = stage_order.get(job['stage'], 0)
+            elapsed = sum(job['times'].values()) + max(0, time.time() - job.get('stage_started', time.time()))
+            speed = completed / elapsed if elapsed > 0 else 0.0
+            pct = round(100 * completed / total)
+            bits = [f'步骤 {step}/3']
+            if eye in eye_labels:
+                bits.append(f'{eye_labels[eye]}（{"1" if eye == "left" else "2"}/2）')
+            bits.append(phase_labels.get(phase, phase))
+            bits.append(f'{completed}/{total} 帧 · {pct}%')
+            if speed >= 0.05:
+                bits.append(f'{speed:.1f} 帧/秒')
+            print('[工作台] ' + ' · '.join(bits), flush=True)
 
     def worker():
         nonlocal last_preview
@@ -373,6 +393,7 @@ def launch(job, face, provider):
                     job['progress'] = {}
                     if next_stage == 'done':
                         job.update(state='done', finished=time.time())
+                        print(f'[工作台] 任务完成：{job_id} · 输出 output.mp4', flush=True)
                         return
                     if job['staged']:
                         job['state'] = 'paused'
@@ -383,6 +404,7 @@ def launch(job, face, provider):
                 job.update(state='error', error=str(exc), finished=time.time())
 
     threading.Thread(target=worker, daemon=True, name=f'vr-{job_id[:8]}').start()
+    print(f'[工作台] 任务 {job_id[:8]} 开始 · 推理 {provider} · 人脸增强 {"开" if job.get("enhance") else "关"} · {job.get("frames", 0)} 帧', flush=True)
 
 
 def job_status(job_id):

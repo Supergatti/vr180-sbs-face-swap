@@ -53,6 +53,11 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def log_message(self, format, *args):
+        if self.command == 'GET' and (self.path.startswith('/api/jobs/') or self.path == '/api/health'):
+            return
+        super().log_message(format, *args)
+
     def body_length(self, limit):
         length = int(self.headers.get('Content-Length', '0'))
         if not 0 < length <= limit:

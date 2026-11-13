@@ -245,13 +245,46 @@ const artifactLabels = {"left_flat.mp4": "左眼透视", "right_flat.mp4": "右�
 const phases = {prepare: "正在准备", project: "透视导出", analyse: "检查输入视频", extract: "FaceFusion 抽帧", face_swapper: "换脸", face_enhancer: "人脸增强", merge: "FaceFusion 视频编码", audio: "FaceFusion 输出整理", composite: "球面回填", finalize: "等待编码完成"};
 const eyeName = {left: "左眼（1/2）", right: "右眼（2/2）"};
 const stageNames = {export: "透视导出", swap: "FaceFusion", refill: "球面回填"};
+function renderSteps(job) {
+  const enhance = !!job?.enhance;
+  const steps = enhance
+    ? [
+        {label: "透视导出", time: job?.times?.export},
+        {label: "FaceFusion 换脸", time: job?.times?.swap},
+        {label: "人脸增强", time: null},
+        {label: "球面回填", time: job?.times?.refill},
+      ]
+    : [
+        {label: "透视导出", time: job?.times?.export},
+        {label: "FaceFusion 换脸", time: job?.times?.swap},
+        {label: "球面回填", time: job?.times?.refill},
+      ];
+  let current = 0;
+  if (job) {
+    const stage = job.stage;
+    const phase = job.progress?.phase;
+    if (stage === "export") current = 0;
+    else if (stage === "swap") current = enhance && ["face_enhancer", "merge", "audio"].includes(phase) ? 2 : 1;
+    else if (stage === "refill") current = enhance ? 3 : 2;
+    else if (stage === "done") current = steps.length;
+  }
+  $("steps").classList.toggle("four", steps.length === 4);
+  $("steps").replaceChildren(...steps.map((s, i) => {
+    const li = document.createElement("li");
+    li.classList.toggle("active", job && i === current && job.state === "running");
+    li.classList.toggle("done", job && i < current);
+    li.textContent = s.time != null ? s.label + " · " + s.time.toFixed(1) + " 秒" : s.label;
+    return li;
+  }));
+  return current;
+}
 let previewRequest;
-function updateDetails(job, index) {
+function updateDetails(job, index, total) {
   $("jobDetails").hidden = false;
   const p = job.progress || {};
   const bar = $("frameProgress");
   const label = job.state === "paused" ? "已完成，等待下一步" : job.state === "done" ? "全部完成" :
-    (job.state === "error" ? "失败 · " : "步骤 " + (index + 1) + "/3 · ") + (eyeName[p.eye] ? eyeName[p.eye] + " · " : "") + (phases[p.phase] || stageNames[job.stage]);
+    (job.state === "error" ? "失败 · " : "步骤 " + (index + 1) + "/" + total + " · ") + (eyeName[p.eye] ? eyeName[p.eye] + " · " : "") + (phases[p.phase] || stageNames[job.stage]);
   $("progressLabel").textContent = label;
   bar.hidden = job.state === "error" && !p.total;
   if (job.state === "done" || job.state === "paused") {
@@ -306,15 +339,8 @@ function updateJob(job) {
   }
   state.job = job;
   $("jobState").textContent = job.state === "error" ? "处理失败" : job.state === "paused" ? "等待下一步" : labels[job.stage];
-  const index = ["export", "swap", "refill", "done"].indexOf(job.stage);
-  updateDetails(job, index);
-  [...$("steps").children].forEach((li, i) => {
-    li.classList.toggle("active", i === index && job.state === "running");
-    li.classList.toggle("done", i < index);
-    const step = ["export", "swap", "refill"][i];
-    const label = ["透视导出", job.enhance ? "FaceFusion 换脸与增强" : "FaceFusion 换脸", "球面回填"][i];
-    li.textContent = job.times?.[step] != null ? label + " · " + job.times[step].toFixed(1) + " 秒" : label;
-  });
+  const current = renderSteps(job);
+  updateDetails(job, current, job.enhance ? 4 : 3);
   $("links").replaceChildren();
   $("results").hidden = false;
   $("output").hidden = !job.output;
@@ -399,7 +425,7 @@ $("resetTest").onclick = () => {
   $("testMedia").hidden = true;
   testMediaKey = undefined;
   $("jobState").textContent = "等待任务";
-  [...$("steps").children].forEach((li, i) => { li.className = ""; li.textContent = ["透视导出", "FaceFusion 换脸", "球面回填"][i]; });
+  renderSteps(null);
   notice("");
   controls();
 };

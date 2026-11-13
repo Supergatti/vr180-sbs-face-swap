@@ -107,6 +107,7 @@ input[type=checkbox]{accent-color:var(--accent);width:17px;height:17px}
 .result{padding:12px}
 .result h2{font-size:14px}
 #steps{list-style:none;padding:0;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:10px 0 0}
+#steps.four{grid-template-columns:repeat(4,minmax(0,1fr))}
 #steps li{color:var(--muted);border-top:2px solid var(--line);padding:5px 1px 0;font-size:11px;overflow-wrap:anywhere}
 #steps li.active{color:var(--warm);border-color:var(--warm)}
 #steps li.done{color:var(--accent);border-color:var(--accent)}
