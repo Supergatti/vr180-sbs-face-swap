@@ -1,0 +1,141 @@
+diff --git a/facefusion/core.py b/facefusion/core.py
+index d03d6f4..4760f93 100755
+--- a/facefusion/core.py
++++ b/facefusion/core.py
+@@ -7,7 +7,7 @@ from time import time
+ 
+ import numpy
+ 
+-from facefusion import content_analyser, face_classifier, face_detector, face_landmarker, face_masker, face_recognizer, logger, process_manager, state_manager, voice_extractor, wording
++from facefusion import content_analyser, face_classifier, face_detector, face_landmarker, face_masker, face_recognizer, logger, process_manager, state_manager, voice_extractor, workbench_progress, wording
+ from facefusion.args import apply_args, collect_job_args, reduce_job_args, reduce_step_args
+ from facefusion.common_helper import get_first
+ from facefusion.content_analyser import analyse_image, analyse_video
+@@ -394,6 +394,7 @@ def process_image(start_time : float) -> ErrorCode:
+ 
+ 
+ def process_video(start_time : float) -> ErrorCode:
++	workbench_progress.begin('analyse')
+ 	trim_frame_start, trim_frame_end = restrict_trim_frame(state_manager.get_item('target_path'), state_manager.get_item('trim_frame_start'), state_manager.get_item('trim_frame_end'))
+ 	if analyse_video(state_manager.get_item('target_path'), trim_frame_start, trim_frame_end):
+ 		return 3
+@@ -408,6 +409,7 @@ def process_video(start_time : float) -> ErrorCode:
+ 	temp_video_resolution = pack_resolution(restrict_video_resolution(state_manager.get_item('target_path'), unpack_resolution(state_manager.get_item('output_video_resolution'))))
+ 	temp_video_fps = restrict_video_fps(state_manager.get_item('target_path'), state_manager.get_item('output_video_fps'))
+ 	logger.info(wording.get('extracting_frames').format(resolution = temp_video_resolution, fps = temp_video_fps), __name__)
++	workbench_progress.begin('extract')
+ 	if extract_frames(state_manager.get_item('target_path'), temp_video_resolution, temp_video_fps, trim_frame_start, trim_frame_end):
+ 		logger.debug(wording.get('extracting_frames_succeed'), __name__)
+ 	else:
+@@ -422,6 +424,7 @@ def process_video(start_time : float) -> ErrorCode:
+ 	if temp_frame_paths:
+ 		for processor_module in get_processors_modules(state_manager.get_item('processors')):
+ 			logger.info(wording.get('processing'), processor_module.__name__)
++			workbench_progress.begin(processor_module.__name__.rsplit('.', 1)[-1], len(temp_frame_paths))
+ 			processor_module.process_video(state_manager.get_item('source_paths'), temp_frame_paths)
+ 			processor_module.post_process()
+ 		if is_process_stopping():
+@@ -432,6 +435,7 @@ def process_video(start_time : float) -> ErrorCode:
+ 		return 1
+ 	# merge video
+ 	logger.info(wording.get('merging_video').format(resolution = state_manager.get_item('output_video_resolution'), fps = state_manager.get_item('output_video_fps')), __name__)
++	workbench_progress.begin('merge')
+ 	if merge_video(state_manager.get_item('target_path'), state_manager.get_item('output_video_resolution'), state_manager.get_item('output_video_fps')):
+ 		logger.debug(wording.get('merging_video_succeed'), __name__)
+ 	else:
+@@ -442,6 +446,7 @@ def process_video(start_time : float) -> ErrorCode:
+ 		process_manager.end()
+ 		return 1
+ 	# handle audio
++	workbench_progress.begin('audio')
+ 	if state_manager.get_item('skip_audio'):
+ 		logger.info(wording.get('skipping_audio'), __name__)
+ 		move_temp_file(state_manager.get_item('target_path'), state_manager.get_item('output_path'))
+diff --git a/facefusion/ffmpeg.py b/facefusion/ffmpeg.py
+index f03674a..5289585 100644
+--- a/facefusion/ffmpeg.py
++++ b/facefusion/ffmpeg.py
+@@ -7,14 +7,14 @@ from typing import List, Optional
+ import filetype
+ from tqdm import tqdm
+ 
+-from facefusion import logger, process_manager, state_manager, wording
++from facefusion import logger, process_manager, state_manager, workbench_progress, wording
+ from facefusion.filesystem import remove_file
+ from facefusion.temp_helper import get_temp_file_path, get_temp_frame_paths, get_temp_frames_pattern
+ from facefusion.typing import AudioBuffer, Fps, OutputVideoPreset, UpdateProgress
+ from facefusion.vision import count_trim_frame_total, detect_image_resolution, detect_video_duration, pack_resolution, restrict_video_fps
+ 
+ 
+-def run_ffmpeg_with_progress(args: List[str], update_progress : UpdateProgress) -> subprocess.Popen[bytes]:
++def run_ffmpeg_with_progress(args: List[str], update_progress : UpdateProgress, total : int = 0) -> subprocess.Popen[bytes]:
+ 	log_level = state_manager.get_item('log_level')
+ 	commands = [ shutil.which('ffmpeg'), '-hide_banner', '-nostats', '-loglevel', 'error', '-progress', '-' ]
+ 	commands.extend(args)
+@@ -27,6 +27,8 @@ def run_ffmpeg_with_progress(args: List[str], update_progress : UpdateProgress)
+ 				if 'frame=' in __line__:
+ 					_, frame_number = __line__.split('frame=')
+ 					update_progress(int(frame_number))
++					if total:
++						workbench_progress.video_count(int(frame_number), total)
+ 
+ 			if log_level == 'debug':
+ 				log_debug(process)
+@@ -91,7 +93,7 @@ def extract_frames(target_path : str, temp_video_resolution : str, temp_video_fp
+ 	commands.extend([ '-vsync', '0', temp_frames_pattern ])
+ 
+ 	with tqdm(total = extract_frame_total, desc = wording.get('extracting'), unit = 'frame', ascii = ' =', disable = state_manager.get_item('log_level') in [ 'warn', 'error' ]) as progress:
+-		process = run_ffmpeg_with_progress(commands, lambda frame_number: progress.update(frame_number - progress.n))
++		process = run_ffmpeg_with_progress(commands, lambda frame_number: progress.update(frame_number - progress.n), extract_frame_total)
+ 		return process.returncode == 0
+ 
+ 
+@@ -125,7 +127,7 @@ def merge_video(target_path : str, output_video_resolution : str, output_video_f
+ 	commands.extend([ '-vf', 'framerate=fps=' + str(output_video_fps), '-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-y', temp_file_path ])
+ 
+ 	with tqdm(total = merge_frame_total, desc = wording.get('merging'), unit = 'frame', ascii = ' =', disable = state_manager.get_item('log_level') in [ 'warn', 'error' ]) as progress:
+-		process = run_ffmpeg_with_progress(commands, lambda frame_number: progress.update(frame_number - progress.n))
++		process = run_ffmpeg_with_progress(commands, lambda frame_number: progress.update(frame_number - progress.n), merge_frame_total)
+ 		return process.returncode == 0
+ 
+ 
+diff --git a/facefusion/processors/modules/face_enhancer.py b/facefusion/processors/modules/face_enhancer.py
+index ce8de8a..374ffe9 100755
+--- a/facefusion/processors/modules/face_enhancer.py
++++ b/facefusion/processors/modules/face_enhancer.py
+@@ -18,6 +18,7 @@ from facefusion.face_selector import find_similar_faces, sort_and_filter_faces
+ from facefusion.face_store import get_reference_faces
+ from facefusion.filesystem import in_directory, is_image, is_video, resolve_relative_path, same_file_extension
+ from facefusion.processors import choices as processors_choices
++from facefusion.workbench_progress import processed_frame
+ from facefusion.processors.typing import FaceEnhancerInputs, FaceEnhancerWeight
+ from facefusion.program_helper import find_argument_group
+ from facefusion.thread_helper import thread_semaphore
+@@ -391,6 +392,7 @@ def process_frames(source_path : List[str], queue_payloads : List[QueuePayload],
+ 			'target_vision_frame': target_vision_frame
+ 		})
+ 		write_image(target_vision_path, output_vision_frame)
++		processed_frame(output_vision_frame, queue_payload['frame_number'])
+ 		update_progress(1)
+ 
+ 
+diff --git a/facefusion/processors/modules/face_swapper.py b/facefusion/processors/modules/face_swapper.py
+index f73795b..8664bf3 100755
+--- a/facefusion/processors/modules/face_swapper.py
++++ b/facefusion/processors/modules/face_swapper.py
+@@ -20,6 +20,7 @@ from facefusion.face_store import get_reference_faces
+ from facefusion.filesystem import filter_image_paths, has_image, in_directory, is_image, is_video, resolve_relative_path, same_file_extension
+ from facefusion.model_helper import get_static_model_initializer
+ from facefusion.processors import choices as processors_choices
++from facefusion.workbench_progress import processed_frame
+ from facefusion.processors.pixel_boost import explode_pixel_boost, implode_pixel_boost
+ from facefusion.processors.typing import FaceSwapperInputs
+ from facefusion.program_helper import find_argument_group
+@@ -590,6 +591,7 @@ def process_frames(source_paths : List[str], queue_payloads : List[QueuePayload]
+ 			'target_vision_frame': target_vision_frame
+ 		})
+ 		write_image(target_vision_path, output_vision_frame)
++		processed_frame(output_vision_frame, queue_payload['frame_number'])
+ 		update_progress(1)
+ 
+ 

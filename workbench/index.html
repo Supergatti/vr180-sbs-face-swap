@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>视差 · VR180 工作台</title>
+<link rel="stylesheet" href="/workbench.css">
+<script src="/workbench.js" defer></script>
+</head>
+<body>
+<header class="appbar">
+  <div class="brand"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="M12 5v14M6.5 12h3m5 0h3"/></svg></span><div><strong>视差</strong><small>VR180 WORKBENCH</small></div></div>
+  <nav class="page-nav" aria-label="工作区"><a id="taskNav" href="/" aria-current="page">换脸任务</a><a id="testNav" href="/test">双目取景测试</a></nav>
+  <div class="app-status"><span class="connection"><i></i><span id="health">连接中</span></span></div>
+</header>
+<main class="layout">
+  <aside class="settings" aria-label="任务设置">
+    <h1 id="pageName">换脸任务</h1>
+    <section>
+      <h2><span>01</span> 素材</h2>
+      <label for="videoPath">目标视频 <small>VR180 SBS · ERP</small></label>
+      <div class="file-row"><input id="videoPath" placeholder="视频文件路径" autocomplete="off"><label class="browse" title="选择视频"><input id="videoFile" type="file" accept="video/*,.mkv,.avi"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="sr-only">选择视频</span></label></div>
+      <label for="facePath">来源人脸</label>
+      <div class="file-row"><input id="facePath" placeholder="图片文件路径" autocomplete="off"><label class="browse" title="选择人脸图片"><input id="faceFile" type="file" accept="image/*"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="sr-only">选择人脸图片</span></label></div>
+      <div id="sourceThumb" class="source-thumb" hidden><img id="sourceImage" alt="来源人脸"><span id="sourceName"></span></div>
+    </section>
+    <section>
+      <h2><span>02</span> 片段</h2>
+      <div class="fields"><label>起始帧<input id="start" type="number" min="0" step="1" value="0"></label><label>结束帧<input id="end" type="number" min="0" step="1" value="0"></label></div>
+      <div class="hint-line"><span id="clipInfo">—</span><span>默认整段</span></div>
+    </section>
+    <section>
+      <h2><span>03</span> 处理</h2>
+      <label for="provider">推理设备</label><select id="provider"><option value="cuda">CUDA · GPU</option><option value="cpu">CPU</option></select>
+      <label class="split" for="padding">取景余量 <output id="padValue">1.8×</output></label><input id="padding" type="range" min="1.1" max="3" step=".1" value="1.8">
+      <label class="toggle"><span>人脸增强</span><input id="enhance" type="checkbox"></label>
+    </section>
+    <div class="run" id="formalActions">
+      <button id="render" class="primary" aria-describedby="renderHint" disabled><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7Z"/></svg> 开始换脸</button>
+      <div class="run-status"><span id="renderHint" role="status">请先载入目标视频</span><button id="renderHelp" class="quiet" type="button" hidden></button></div>
+    </div>
+  </aside>
+  <div class="workspace">
+    <div class="title"><div><p class="eyebrow" id="pageLabel">PRODUCTION</p><h2 id="viewerTitle">目标确认</h2></div><span id="videoInfo" class="badge">未载入素材</span></div>
+    <section class="viewer" aria-label="双目预览">
+      <div class="toolbar">
+        <div class="tabs" role="group" aria-label="预览"><button id="erpTab" aria-pressed="true">SBS 原画</button><button id="perspTab" aria-pressed="false" disabled>透视裁片</button></div>
+        <div class="tools"><button id="draw" class="quiet" title="拖动手动画框" aria-pressed="false" disabled><svg viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/></svg> 手动画框</button><button id="detect" class="secondary" disabled><svg viewBox="0 0 24 24"><path d="M7 3H3v4m14-4h4v4M3 17v4h4m14-4v4h-4M3 12h18"/></svg> 检测人脸</button></div>
+      </div>
+      <div id="stage" class="stage">
+        <div id="empty" class="empty"><svg viewBox="0 0 160 98" fill="none" aria-hidden="true"><rect x="3" y="3" width="154" height="92" rx="9" stroke="currentColor"/><path d="M80 4v90M17 62l20-19 14 14 13-11 10 10m12 6 20-19 14 14 13-11 10 10" stroke="currentColor"/><circle cx="49" cy="32" r="6" stroke="currentColor"/><circle cx="118" cy="32" r="6" stroke="currentColor"/></svg><strong>选择目标视频</strong></div>
+        <div id="erp" class="erp" hidden><img id="frameImage" alt="VR180 左右眼原始画面" draggable="false"><video id="inputVideo" aria-label="VR180 原片" preload="none" muted playsinline hidden></video><div id="overlay"><span class="eye-tag left">L / 左眼</span><span class="eye-tag right">R / 右眼</span><div id="boxes"></div></div></div>
+        <div id="crops" class="crops" hidden><figure><img id="cropL" alt="左眼透视裁片"><figcaption>L / 左眼</figcaption></figure><figure><img id="cropR" alt="右眼透视裁片"><figcaption>R / 右眼</figcaption></figure></div>
+      </div>
+      <div class="timeline"><button id="play" class="quiet" type="button" aria-label="播放并检测" title="播放并检测" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path id="playIcon" d="m8 5 12 7-12 7Z"/></svg></button><label for="frame">参考帧</label><input id="seek" aria-label="拖动选择参考帧" type="range" min="0" max="0" value="0" disabled><input id="frame" type="number" min="0" value="0" disabled><button id="load" class="quiet">载入视频</button></div>
+    </section>
+    <section class="selection" aria-label="选中的人脸"><div><span class="eye-id">L</span><span>左眼目标</span><strong id="leftState">未选择</strong></div><div><span class="eye-id">R</span><span>右眼目标</span><strong id="rightState">未选择</strong></div><button id="clear" class="quiet" disabled>清除框选</button></section>
+    <p id="notice" role="status" class="notice"></p>
+    <section id="testActions" class="test-panel" aria-label="分步测试" hidden>
+      <div class="result-head"><h2>分步测试</h2><button id="resetTest" class="quiet" disabled>重新测试</button></div>
+      <div class="test-steps"><button id="testRead">01 读取</button><button id="testExport">02 透视导出</button><button id="testSwap">03 换脸</button><button id="testRefill">04 回填</button></div>
+      <p id="testHint" role="status" class="hint-line"></p>
+    </section>
+    <section class="result" aria-labelledby="resultTitle">
+      <div class="result-head"><h2 id="resultTitle">处理输出</h2><span class="badge" id="jobState">等待任务</span></div>
+      <ol id="steps"><li>透视导出</li><li>FaceFusion 换脸</li><li>球面回填</li></ol>
+      <div id="jobDetails" class="job-details" hidden>
+        <div class="progress-heading"><label id="progressLabel" for="frameProgress">当前步骤</label><span id="frameCount"></span></div>
+        <progress id="frameProgress" max="100"></progress>
+        <div class="job-metrics"><span id="jobRange"></span><span id="jobProvider"></span><span id="jobElapsed"></span><span id="jobSpeed"></span></div>
+        <figure id="livePreview" class="live-preview" hidden><figcaption><strong>已处理帧</strong><span id="liveCaption"></span></figcaption><img id="liveImage" alt="最近完成的处理帧"></figure>
+        <details id="jobLog" class="job-log" hidden><summary>处理日志</summary><pre id="logLines" tabindex="0"></pre></details>
+      </div>
+      <div id="results" hidden><video id="output" controls playsinline preload="metadata" hidden></video><div id="links" class="links"></div><div id="testMedia" class="test-media" hidden></div></div>
+    </section>
+  </div>
+</main>
+</body>
+</html>

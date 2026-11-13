@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+
+# 本地运行时与模型权重
+.assets/
+.workbench/
+
+# 上传的媒体与生成产物
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+*.jpg
+*.jpeg
+*.png
+*.json
+*.npy
+*.log
