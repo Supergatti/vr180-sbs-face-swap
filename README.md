@@ -1,3 +1,5 @@
+**中文** · [English](README_EN.md)
+
 <div align="center">
 
 # 🎭 VR180 SBS 换脸工作台
