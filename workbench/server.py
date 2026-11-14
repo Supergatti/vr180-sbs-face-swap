@@ -26,7 +26,9 @@ if __name__ == '__main__' and find_spec('onnxruntime') is None:
 import workbench as wb
 
 
-STATIC = {'/': 'index.html', '/index.html': 'index.html', '/test': 'index.html', '/workbench.css': 'workbench.css', '/workbench.js': 'workbench.js'}
+STATIC = {'/': 'index.html', '/index.html': 'index.html', '/test': 'index.html',
+          '/facefusion': 'index.html', '/facefusion/': 'index.html',
+          '/workbench.css': 'workbench.css', '/workbench.js': 'workbench.js'}
 ARTIFACTS = {'output.mp4', 'monitor.png', 'left_flat.mp4', 'right_flat.mp4', 'left_swapped.mp4', 'right_swapped.mp4', 'selection.json'}
 JOB_PATH = re.compile(r'/api/jobs/([a-f0-9]{32})')
 PREVIEW_PATH = re.compile(r'/api/jobs/([a-f0-9]{32})/preview')
@@ -137,6 +139,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.file(wb.ROOT / STATIC[path])
             elif path == '/api/health':
                 self.send_json({'ok': True, 'model': wb.MODEL.is_file()})
+            elif path == '/api/facefusion/options':
+                self.send_json(wb.tuning.catalog())
             elif match := PLAYBACK_PATH.fullmatch(path):
                 self.file(wb.playback_file(match[1]))
             elif match := JOB_PATH.fullmatch(path):
@@ -157,6 +161,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({'error': 'File or job not found.'}, 404)
         except (BrokenPipeError, ConnectionResetError):
             pass
+        except RuntimeError as exc:
+            self.send_json({'error': str(exc)}, 503)
 
     def do_POST(self):
         if not self.local_request():

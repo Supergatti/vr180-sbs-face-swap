@@ -6,7 +6,7 @@
 
 **Swap one face for another in 180° stereoscopic VR video.**
 
-A workbench for face-swapping in 180° ERP side-by-side (SBS) VR video: a VR180-trained YOLOFace locates faces directly on the two eyes' ERP frames, a selected target is cropped into perspective tiles with a fixed framing, handed to FaceFusion for the swap, then inversely remapped back into the SBS output.
+A workbench for 180° ERP side-by-side (SBS) VR video. YOLOFace locates faces in the two eye views, FaceFusion swaps the target in a dynamic perspective crop, and the result is mapped back into the SBS output.
 
 [![GitHub stars](https://img.shields.io/github/stars/Supergatti/vr180-sbs-face-swap?style=for-the-badge&logo=github&logoColor=white&labelColor=1c2128&color=2ea44f)](https://github.com/Supergatti/vr180-sbs-face-swap/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Supergatti/vr180-sbs-face-swap?style=for-the-badge&logo=github&logoColor=white&labelColor=1c2128&color=0969da)](https://github.com/Supergatti/vr180-sbs-face-swap/forks)
@@ -15,7 +15,7 @@ A workbench for face-swapping in 180° ERP side-by-side (SBS) VR video: a VR180-
 
 </div>
 
-> **First version with "fixed dual-eye framing"**: the framing angle is determined by the target box on a reference frame and reused for the whole clip. Suited for shots where the target stays roughly inside the frame; faces will be missed when the target moves a lot, turns their head, or the camera moves. Per-frame tracking comes in a later version.
+> **Production uses dynamic per-eye framing.** Each frame is cropped, swapped and composited in memory without intermediate perspective videos. Fixed framing remains available on `/test`.
 
 ---
 
@@ -27,7 +27,9 @@ A workbench for face-swapping in 180° ERP side-by-side (SBS) VR video: a VR180-
 | 👁️ **Independent per-eye processing** | Left and right eyes are located, framed, swapped, and back-blended independently; the same person uses the same source identity |
 | 🖼️ **Perspective export / spherical back-fill** | Crop perspective tiles from the target box → FaceFusion swap → inverse remap back to SBS, preserving stereo layout, frame timing, and audio |
 | 🔄 **Face swap + enhancement** | Optional face enhancement (when enabled, the pipeline goes from 3 steps to 4); turn it off for speed |
-| 📊 **Live progress** | Step indicator, frame progress, percentage, speed, and live PNG preview; the console logs stage progress in sync |
+| 📊 **Live progress** | Frame counts, speed, live SBS previews, unswapped-frame counts and a downloadable annotated PNG |
+| **Identity verification** | Off, relaxed or strict. Relaxed mode can recover the other eye after one eye matches; strict requires both eyes to pass |
+| **FaceFusion controls** | `/facefusion` exposes models, pixel boost, masks, identity distance, detection angles and a one-frame preview run |
 | 🧑‍🤝‍🧑 **Target a specific person** | Pick the same person in both eyes to swap; manual boxing as a fallback when detection misses |
 | 🧪 **Step-by-step test entry** | The `/test` page runs "read → perspective export → swap → back-fill" step by step for debugging |
 | 🎚️ **Inference device switch** | One-click switch between CUDA · GPU and CPU |
@@ -35,7 +37,7 @@ A workbench for face-swapping in 180° ERP side-by-side (SBS) VR video: a VR180-
 ## Layout
 
 - `workbench/` — the workbench itself (HTTP server + frontend + perspective/swap/back-fill pipeline)
-- `facefusion/` — one small patch for FaceFusion (progress/preview reporting, optional)
+- `facefusion/` — dynamic face analysis compatibility patch and optional staged progress reporting
 - `scripts/` — dependency install and model download scripts
 - `docs/` — implementation plan and detection notes
 
@@ -54,9 +56,9 @@ The script will, in order:
 1. Create (or reuse) the conda environment `facefusion` (Python 3.10);
 2. Shallow-clone FaceFusion **3.1.2** into `.facefusion/` and install its dependencies (including onnxruntime-gpu);
 3. Auto-download the workbench's dedicated VR180 detection model `yoloface_12n-vr180.onnx` (SHA-256 verified);
-4. Apply the progress-reporting patch (optional; failures do not block).
+4. Apply the face analysis compatibility patch, try the staged progress patch, and prepare the default detector, swapper, enhancer and mask models.
 
-FaceFusion's own swap/enhance models (inswapper, gfpgan, etc.) are **auto-downloaded by FaceFusion on the first swap** — no manual handling needed.
+FaceFusion weights are stored in `.facefusion/.assets/models/`. After installing extra models there, refresh `/facefusion` to select them.
 
 ## Start
 
@@ -75,6 +77,8 @@ Open http://127.0.0.1:8080/ in a browser:
 
 The step-by-step test entry at http://127.0.0.1:8080/test runs "read → perspective export → swap → back-fill" incrementally.
 
+Use http://127.0.0.1:8080/facefusion to tune settings and preview a reference frame. Detection defaults to 0°; selecting 90°, 180° or 270° adds those angles to both detection passes and increases processing time.
+
 ### Inference device
 
 The "inference device" dropdown offers:
@@ -85,8 +89,8 @@ The "inference device" dropdown offers:
 ## Manual setup (not recommended)
 
 1. Install FaceFusion 3.1.2 in the same environment (or reuse an existing FaceFusion directory and write its root path to the `FACEFUSION_HOME` environment variable).
-2. Copy `facefusion/workbench_progress.py` into FaceFusion's `facefusion/` directory, and apply `facefusion/workbench-progress.patch` to the 4 files (optional; only affects progress reporting).
-3. Download `yoloface_12n-vr180.onnx` to `.assets/models/`, or run `python scripts/download-models.py`.
+2. Apply this repository's `facefusion/workbench-analyser.patch` from the FaceFusion root (required for dynamic rendering). For optional staged progress, copy `facefusion/workbench_progress.py` into the FaceFusion package and apply `facefusion/workbench-progress.patch`.
+3. Install the selected FaceFusion weights in its `.assets/models/`. Put the VR180 detector in the workbench's own `.assets/models/`, or run `python scripts/download-models.py` to get it.
 
 ## Notes
 

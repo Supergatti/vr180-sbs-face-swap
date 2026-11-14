@@ -6,7 +6,7 @@
 
 **在 180° 立体 VR 视频里，把一张脸换成另一张。**
 
-对 180° ERP 的左右并排（Side-by-Side）VR 视频做换脸的工作台：用专为 VR180 训练的 YOLOFace 直接在两眼的 ERP 画面上定位人脸，选定目标后按固定取景抽取透视片，交给 FaceFusion 换脸，再把结果逆重映射回 SBS 输出。
+对 180° ERP 的左右并排（Side-by-Side）VR 视频做换脸的工作台：YOLOFace 在两眼原画中定位人脸，FaceFusion 在动态透视裁片中换脸，再把结果回填到 SBS 画面。
 
 [![GitHub stars](https://img.shields.io/github/stars/Supergatti/vr180-sbs-face-swap?style=for-the-badge&logo=github&logoColor=white&labelColor=1c2128&color=2ea44f)](https://github.com/Supergatti/vr180-sbs-face-swap/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/Supergatti/vr180-sbs-face-swap?style=for-the-badge&logo=github&logoColor=white&labelColor=1c2128&color=0969da)](https://github.com/Supergatti/vr180-sbs-face-swap/forks)
@@ -15,7 +15,7 @@
 
 </div>
 
-> **当前为首版「固定双眼取景」**：取景视角由参考帧的目标框决定，整段复用同一取景。适合目标大致留在取景框内的镜头；目标大幅移动、转头或镜头运动时会漏换。逐帧跟踪在后续版本实现。
+> **正式任务采用动态双眼取景。** 每帧在内存中完成裁切、换脸和回填，不生成中间透视视频。固定取景流程保留在 `/test`。
 
 ---
 
@@ -27,7 +27,9 @@
 | 👁️ **双眼独立处理** | 左、右眼分别定位、取景、换脸与逆回填，同一人物使用同一来源身份 |
 | 🖼️ **透视导出 / 球面回填** | 按目标框抽取透视裁片 → FaceFusion 换脸 → 逆重映射回 SBS，保留双目布局、帧时序与音频 |
 | 🔄 **换脸 + 人脸增强** | 可选的人脸增强（勾选后流程由 3 步变为 4 步），可关闭以换取速度 |
-| 📊 **实时进度** | 步骤指示、帧进度、百分比、速度与实时预览 PNG，控制台同步输出阶段进度 |
+| 📊 **实时进度** | 帧进度、速度、SBS 预览和保留原画帧数；可下载参考帧带框 PNG |
+| **身份核查** | 无核查、宽松、严格三档。宽松允许一眼通过后补检另一眼；严格要求双眼都通过 |
+| **FaceFusion 参数** | `/facefusion` 提供模型、像素增强、遮罩、识别距离和检测角度，以及参考帧试跑 |
 | 🧑‍🤝‍🧑 **指定人物** | 点选左右眼中的同一人物进行替换，未检出时可手动画框兜底 |
 | 🧪 **分步测试入口** | `/test` 页可逐步执行「读取 → 透视导出 → 换脸 → 回填」，便于排查 |
 | 🎚️ **推理设备切换** | CUDA · GPU / CPU 一键切换 |
@@ -35,7 +37,7 @@
 ## 目录
 
 - `workbench/` — 工作台本体（HTTP 服务 + 前端 + 透视/换脸/回填管线）
-- `facefusion/` — 对 FaceFusion 的一处小补丁（进度/预览回传，可选）
+- `facefusion/` — 动态人脸分析兼容补丁与分步测试进度回传补丁
 - `scripts/` — 依赖安装与权重下载脚本
 - `docs/` — 实施计划与检测思路
 
@@ -54,9 +56,9 @@ powershell -ExecutionPolicy Bypass -File setup.ps1
 1. 创建（或复用）conda 环境 `facefusion`（Python 3.10）；
 2. 把 FaceFusion **3.1.2** 浅克隆到 `.facefusion/` 并安装其依赖（含 onnxruntime-gpu）；
 3. 自动下载本工作台专有的 VR180 检测模型 `yoloface_12n-vr180.onnx`（SHA-256 校验）；
-4. 应用进度回传补丁（可选，失败不阻断）。
+4. 应用人脸分析兼容补丁，尝试应用分步进度补丁，并准备默认检测、换脸、增强和遮罩模型。
 
-FaceFusion 自身的换脸/增强模型（inswapper、gfpgan 等）会在**首次换脸时由 FaceFusion 自动下载**，无需手动处理。
+FaceFusion 权重放在 `.facefusion/.assets/models/`；额外模型安装后，刷新 `/facefusion` 即可选择。
 
 ## 启动
 
@@ -75,6 +77,8 @@ powershell -ExecutionPolicy Bypass -File start.ps1
 
 分步测试入口 http://127.0.0.1:8080/test 可逐步执行「读取 → 透视导出 → 换脸 → 回填」。
 
+高级参数入口 http://127.0.0.1:8080/facefusion 可先试跑参考帧。检测默认只用 0°；加选 90°、180°、270° 会应用到粗检和精检，也会增加推理耗时。
+
 ### 推理设备
 
 「推理设备」下拉可选：
@@ -85,8 +89,8 @@ powershell -ExecutionPolicy Bypass -File start.ps1
 ## 手动安装（不推荐）
 
 1. 在同一环境安装 FaceFusion 3.1.2（或复用已有的 FaceFusion 目录，将其根目录路径写入环境变量 `FACEFUSION_HOME`）。
-2. 把 `facefusion/workbench_progress.py` 复制到 FaceFusion 的 `facefusion/` 目录，并按 `facefusion/workbench-progress.patch` 给 4 个文件打补丁（可选，仅影响进度回传）。
-3. 下载 `yoloface_12n-vr180.onnx` 放到 `.assets/models/`，或运行 `python scripts/download-models.py`。
+2. 在 FaceFusion 根目录应用本仓库的 `facefusion/workbench-analyser.patch`（动态换脸必需）。分步进度可选：复制 `facefusion/workbench_progress.py` 并应用 `facefusion/workbench-progress.patch`。
+3. 在 FaceFusion 的 `.assets/models/` 安装所选模型；将 VR180 检测模型放到工作台根目录的 `.assets/models/`，或运行 `python scripts/download-models.py` 获取它。
 
 ## 说明
 

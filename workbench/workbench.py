@@ -22,6 +22,7 @@ if os.name == 'nt':
     if conda_bin.is_dir():
         os.environ['PATH'] = str(conda_bin) + os.pathsep + os.environ.get('PATH', '')
 
+import facefusion_settings as tuning
 import vr180_sbs_pipeline as pipeline
 
 
@@ -118,7 +119,7 @@ def detector(provider):
     return session
 
 
-def detect_eye(image, session, threshold):
+def detect_eye_at_zero(image, session, threshold):
     model_input = session.get_inputs()[0]
     _, _, height, width = model_input.shape
     height = height if isinstance(height, int) else 640
@@ -142,6 +143,29 @@ def detect_eye(image, session, threshold):
         if x2 - x1 > 0.003 and y2 - y1 > 0.003:
             boxes.append([float(x1), float(y1), float(x2 - x1), float(y2 - y1)])
             scores.append(float(score))
+    if not boxes:
+        return []
+    keep = cv2.dnn.NMSBoxes(boxes, scores, 0.0, 0.45, top_k=40)
+    return [{'box': boxes[i], 'score': scores[i]} for i in np.asarray(keep).ravel().astype(int)[:20]]
+
+
+def detect_eye(image, session, threshold, angles=(0,)):
+    if tuple(angles) == (0,):
+        return detect_eye_at_zero(image, session, threshold)
+    boxes, scores = [], []
+    for angle in angles:
+        rotated = np.rot90(image, angle // 90) if angle else image
+        for item in detect_eye_at_zero(rotated, session, threshold):
+            x, y, w, h = item['box']
+            # Undo the counterclockwise rotation in normalized eye coordinates.
+            box = {
+                0: (x, y, w, h),
+                90: (1 - y - h, x, h, w),
+                180: (1 - x - w, 1 - y - h, w, h),
+                270: (y, 1 - x - w, h, w),
+            }[angle]
+            boxes.append([max(0., box[0]), max(0., box[1]), box[2], box[3]])
+            scores.append(item['score'])
     if not boxes:
         return []
     keep = cv2.dnn.NMSBoxes(boxes, scores, 0.0, 0.45, top_k=40)
@@ -200,10 +224,11 @@ def inspect_video(payload):
         threshold = float(payload.get('threshold', .25))
         if not .05 <= threshold <= .95:
             raise ValueError('Invalid detection threshold.')
+        angles = tuning.detector_angles(payload.get('angles', [0]))
         with DETECT_LOCK:
             session = detector(provider)
             eyes = np.hsplit(frame, 2)
-            result['faces'] = [detect_eye(eye, session, threshold) for eye in eyes]
+            result['faces'] = [detect_eye(eye, session, threshold, angles) for eye in eyes]
         result['provider'] = session.get_providers()[0]
     return result
 
@@ -258,6 +283,12 @@ def start_job(payload, staged=False):
     video = local_file(payload.get('video'), VIDEO_SUFFIXES)
     face = None if staged else local_file(payload.get('face'), FACE_SUFFIXES)
     provider = execution_provider(payload)
+    enhance = payload.get('enhance') is True
+    if not staged:
+        identity_mode = payload.get('identity_mode', 'off' if payload.get('identity_match') is False else 'strict')
+        if identity_mode not in ('off', 'relaxed', 'strict'):
+            raise ValueError('无效的身份核查模式。')
+        options = tuning.validate(payload.get('facefusion', {}), enhance)
     if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
         raise ValueError('FFmpeg and FFprobe must be on PATH.')
     reference, start, end = (int(payload.get(key, 0)) for key in ('frame', 'start', 'end'))
@@ -268,8 +299,8 @@ def start_job(payload, staged=False):
     params, dyaw, dpitch = camera_from_boxes(boxes, float(payload.get('padding', 1.8)), start, end)
     job_id = uuid.uuid4().hex
     folder = DATA / 'jobs' / job_id
-    job = {'id': job_id, 'state': 'running', 'stage': 'export', 'started': time.time(),
-           'frames': end - start + 1, 'enhance': payload.get('enhance') is True,
+    job = {'id': job_id, 'state': 'running', 'stage': 'export' if staged else 'dynamic', 'started': time.time(),
+           'frames': end - start + 1, 'enhance': enhance,
            'staged': staged, 'times': {}, 'inputs': (video, params, dyaw, dpitch, reference),
            'provider': provider, 'range': [start, end], 'progress': {}, 'logs': deque(maxlen=60)}
     with LOCK:
@@ -277,9 +308,15 @@ def start_job(payload, staged=False):
         folder.mkdir(parents=True)
         write_monitor(folder / 'monitor.png', sample, boxes)
         pipeline.write_camera_params_json(params, folder / 'camera_params.json')
-        (folder / 'selection.json').write_text(json.dumps({
+        selection = {
             'reference_frame': reference, 'boxes': boxes, 'right_yaw_offset': dyaw, 'right_pitch_offset': dpitch,
-        }, indent=2), encoding='utf-8')
+        }
+        if not staged:
+            job['selection'] = (boxes, float(payload.get('padding', 1.8)))
+            job['identity_mode'] = identity_mode
+            job['facefusion'] = options
+            selection.update(identity_mode=identity_mode, facefusion=options)
+        (folder / 'selection.json').write_text(json.dumps(selection, indent=2), encoding='utf-8')
         JOBS[job_id] = job
     launch(job, face, provider)
     return job_status(job_id)
@@ -313,12 +350,12 @@ def launch(job, face, provider):
     last_preview = 0.0
     last_console = 0.0
     stage_order = {'export': 1, 'swap': 2, 'refill': 3}
-    phase_labels = {'prepare': '准备', 'project': '透视导出', 'finalize': '收尾',
+    phase_labels = {'prepare': '准备', 'project': '透视导出', 'finalize': '收尾', 'dynamic': '双眼动态换脸',
                     'analyse': '分析', 'extract': '提取帧', 'merge': '合成', 'audio': '音频',
                     'face_swapper': '换脸', 'face_enhancer': '人脸增强'}
     eye_labels = {'left': '左眼', 'right': '右眼'}
 
-    def report(phase=None, completed=None, total=None, frame=None, images=None, jpeg=None, eye=None, message=None):
+    def report(phase=None, completed=None, total=None, frame=None, images=None, jpeg=None, eye=None, message=None, stats=None):
         nonlocal last_preview, last_console
         now = time.monotonic()
         preview = base64.b64decode(jpeg) if jpeg else None
@@ -333,6 +370,8 @@ def launch(job, face, provider):
                 preview = encoded.tobytes()
                 last_preview = now
         with LOCK:
+            if stats is not None:
+                job['stats'] = dict(stats)
             if message:
                 job['logs'].append({'time': time.time(), 'message': message})
             if phase:
@@ -353,7 +392,7 @@ def launch(job, face, provider):
             elapsed = sum(job['times'].values()) + max(0, time.time() - job.get('stage_started', time.time()))
             speed = completed / elapsed if elapsed > 0 else 0.0
             pct = round(100 * completed / total)
-            bits = [f'步骤 {step}/3']
+            bits = [f'步骤 {step}/3'] if step else []
             if eye in eye_labels:
                 bits.append(f'{eye_labels[eye]}（{"1" if eye == "left" else "2"}/2）')
             bits.append(phase_labels.get(phase, phase))
@@ -372,7 +411,16 @@ def launch(job, face, provider):
                 with LOCK:
                     job['stage_started'] = time.time()
                 report(phase='prepare')
-                if stage == 'export':
+                if stage == 'dynamic':
+                    import vr180_dynamic
+
+                    boxes, padding = job['selection']
+                    vr180_dynamic.render(sys.modules[__name__], video, face, folder / 'output.mp4',
+                                         params.start_frame, params.end_frame, reference, boxes, padding,
+                                         provider, job['enhance'], report, identity_mode=job['identity_mode'],
+                                         options=job['facefusion'])
+                    next_stage = 'done'
+                elif stage == 'export':
                     pipeline.export_perspective_segments(video, settings, folder, dyaw, dpitch, progress=report)
                     next_stage = 'swap'
                 elif stage == 'swap':
@@ -411,7 +459,7 @@ def job_status(job_id):
     with LOCK:
         if job_id not in JOBS:
             raise FileNotFoundError('Job not found in this server session.')
-        job = {key: value for key, value in JOBS[job_id].items() if key not in ('inputs', 'preview_bytes')}
+        job = {key: value for key, value in JOBS[job_id].items() if key not in ('inputs', 'preview_bytes', 'selection')}
         job['times'] = dict(job['times'])
         job['progress'] = dict(job['progress'])
         job['logs'] = list(job['logs'])

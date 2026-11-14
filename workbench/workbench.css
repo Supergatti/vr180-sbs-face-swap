@@ -20,6 +20,26 @@ h1,h2,p,figure{margin:0}
 .connection i{width:7px;height:7px;border-radius:50%;background:var(--accent)}
 .version{border-left:1px solid var(--line);padding-left:13px}
 .layout{display:grid;grid-template-columns:264px minmax(0,1fr);max-width:1760px;margin:auto;min-height:calc(100vh - 65px)}
+.fusion-page .layout{grid-template-columns:248px 266px minmax(0,1fr)}
+.fusion-settings{background:#151a1d;border-right:1px solid var(--line);padding:18px 14px;min-width:0}
+.fusion-settings h2{font-size:15px}
+.fusion-settings fieldset{border:0;padding:0;margin:8px 0;min-width:0}
+.fusion-settings fieldset:disabled{opacity:.65}
+.fusion-settings details{border-top:1px solid var(--line);padding:11px 0}
+.fusion-settings summary{font-size:12px;font-weight:600;cursor:pointer}
+.fusion-settings details>label{margin-top:11px}
+.fusion-slider{margin-top:11px}
+.fusion-slider label{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.fusion-slider output{color:var(--accent);white-space:nowrap;font-variant-numeric:tabular-nums}
+.fusion-slider input{margin:5px 0 0}
+.fusion-checks{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:9px}
+.fusion-checks label{display:flex;gap:3px;align-items:center;white-space:nowrap}
+.fusion-checks input{margin:0}
+.fusion-margin{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;margin-top:10px}
+.fusion-margin input{margin-top:4px}
+.fusion-settings .icon-button{width:32px;padding:0;flex:none}
+.result-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;flex-wrap:wrap}
+@media(max-width:1040px){.fusion-page .layout{grid-template-columns:235px minmax(0,1fr)}.fusion-page .settings{grid-area:1/1}.fusion-page .fusion-settings{grid-area:2/1;border-top:1px solid var(--line)}.fusion-page .workspace{grid-area:1/2/3/3}}
 .settings{background:#151a1d;border-right:1px solid var(--line);padding:23px 19px;min-width:0}
 .settings h1{font-size:18px}
 .settings section{padding:19px 0;border-bottom:1px solid var(--line)}
@@ -128,3 +148,4 @@ a{color:var(--accent)}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 @media(max-width:830px){.layout{grid-template-columns:220px minmax(0,1fr)}.workspace{padding:16px}.settings{padding:16px 12px}.stage{min-height:190px}}
 @media(max-width:650px){.layout{display:flex;flex-direction:column}.settings{border-right:0;border-bottom:1px solid var(--line)}.appbar{padding:0 13px}.version{display:none}.workspace{padding:15px 10px}.toolbar{flex-wrap:wrap}.stage{min-height:150px}.timeline{flex-wrap:wrap}.timeline #frame{width:62px}.title h2{font-size:20px}}
+@media(max-width:650px){.appbar{height:auto;min-height:65px;display:grid;grid-template-columns:1fr auto;row-gap:4px;padding-block:7px}.page-nav{grid-row:2;grid-column:1/-1;justify-content:center;flex-wrap:wrap}.app-status{grid-area:1/2}.fusion-settings{border-right:0;border-bottom:1px solid var(--line)}}

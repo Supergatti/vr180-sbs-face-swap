@@ -1,6 +1,7 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const isTest = location.pathname === "/test";
+const isFusion = location.pathname.replace(/\/$/, "") === "/facefusion";
 const jobKey = isTest ? "vr180-test-job" : "vr180-job";
 if (isTest) {
   document.title = "双目取景测试 · 视差";
@@ -10,7 +11,18 @@ if (isTest) {
   $("taskNav").removeAttribute("aria-current");
   $("testNav").setAttribute("aria-current", "page");
   $("formalActions").hidden = true;
+  $("identitySetting").hidden = true;
   $("testActions").hidden = false;
+}
+if (isFusion) {
+  document.title = "FaceFusion · VR180 工作台";
+  document.body.classList.add("fusion-page");
+  $("pageName").textContent = "换脸设置";
+  $("pageLabel").textContent = "FACEFUSION";
+  $("taskNav").removeAttribute("aria-current");
+  $("fusionNav").setAttribute("aria-current", "page");
+  $("fusionSettings").hidden = false;
+  $("fusionPreview").hidden = false;
 }
 const state = {video: "", info: null, frame: 0, faces: [[], []], selected: [null, null], manual: false, busy: false, job: null};
 let drag, previewSeq = 0, sourceURL, testMediaKey;
@@ -36,6 +48,7 @@ function selectionRequirement() {
 function renderRequirement() {
   if (running()) return ["当前任务处理中"];
   if (state.busy) return ["正在处理请求…"];
+  if (isFusion && !fusionCatalog) return ["FaceFusion 参数未就绪"];
   if (videoReady() && !$("facePath").value.trim()) return ["请选择来源人脸", "facePath", "去选择"];
   return selectionRequirement();
 }
@@ -62,12 +75,19 @@ function controls() {
   for (const [id, allowed] of Object.entries(enabled)) $(id).disabled = locked || !allowed;
   $("load").disabled ||= frozen;
   $("clear").disabled ||= frozen;
-  $("renderHint").textContent = requirement?.[0] || "固定双眼取景";
+  $("renderHint").textContent = requirement?.[0] || (isTest ? "固定双眼取景" : "双眼动态取景");
   $("renderHelp").hidden = !requirement?.[1];
   $("renderHelp").textContent = requirement?.[2] || "";
   $("perspTab").disabled = !hasPair() || locked;
   for (const id of ["videoPath", "videoFile", "padding", "start", "end"]) $(id).disabled = locked || frozen;
-  for (const id of ["facePath", "faceFile", "provider", "enhance"]) $(id).disabled = locked;
+  for (const id of ["facePath", "faceFile", "provider", "enhance", "identityMode"]) $(id).disabled = locked;
+  if (isFusion) {
+    $("fusionFields").disabled = locked || !fusionCatalog;
+    $("fusionReset").disabled = locked || !fusionCatalog;
+    $("fusionPreview").disabled = locked || !!requirement;
+    $("fusionEnhancerSettings").hidden = !$("enhance").checked;
+    $("reference_face_distance")?.toggleAttribute("disabled", $("identityMode").value === "off");
+  }
   $("draw").setAttribute("aria-pressed", state.manual);
   $("overlay").classList.toggle("drawing", state.manual && !locked && !frozen);
   $("leftState").textContent = state.selected[0] ? "已选择" : "未选择";
@@ -144,7 +164,9 @@ function resetSelection() {
   show("erp");
 }
 async function inspect(path, frame, detect = false, resetClip = false) {
-  const result = await request("/api/inspect", {video: path, frame, detect, provider: $("provider").value});
+  const threshold = isFusion && fusionCatalog ? number("vr_detector_score") : undefined;
+  const angles = isFusion && fusionCatalog ? checkedValues("fusionAngles").map(Number) : undefined;
+  const result = await request("/api/inspect", {video: path, frame, detect, threshold, angles, provider: $("provider").value});
   const changed = path !== state.video || frame !== state.frame;
   state.video = path;
   state.info = result.info;
@@ -240,14 +262,19 @@ for (const kind of ["video", "face"]) $(kind + "File").onchange = e => {
   });
 };
 $("facePath").addEventListener("input", () => { $("sourceThumb").hidden = true; });
-const labels = {export: "透视导出中", swap: "FaceFusion 处理中", refill: "球面回填中", done: "已完成"};
+const labels = {dynamic: "动态换脸中", export: "透视导出中", swap: "FaceFusion 处理中", refill: "球面回填中", done: "已完成"};
 const artifactLabels = {"left_flat.mp4": "左眼透视", "right_flat.mp4": "右眼透视", "left_swapped.mp4": "左眼换脸", "right_swapped.mp4": "右眼换脸"};
-const phases = {prepare: "正在准备", project: "透视导出", analyse: "检查输入视频", extract: "FaceFusion 抽帧", face_swapper: "换脸", face_enhancer: "人脸增强", merge: "FaceFusion 视频编码", audio: "FaceFusion 输出整理", composite: "球面回填", finalize: "等待编码完成"};
+const phases = {reference: "建立双眼目标库", dynamic: "双眼动态换脸", prepare: "正在准备", project: "透视导出", analyse: "检查输入视频", extract: "FaceFusion 抽帧", face_swapper: "换脸", face_enhancer: "人脸增强", merge: "FaceFusion 视频编码", audio: "FaceFusion 输出整理", composite: "球面回填", finalize: "等待编码完成"};
 const eyeName = {left: "左眼（1/2）", right: "右眼（2/2）"};
-const stageNames = {export: "透视导出", swap: "FaceFusion", refill: "球面回填"};
+const stageNames = {dynamic: "双眼动态换脸", export: "透视导出", swap: "FaceFusion", refill: "球面回填"};
+const identityMode = job => job?.identity_mode ?? (job?.identity_match === false ? "off" : "strict");
+const identityLabels = {off: "无核查", relaxed: "宽松核查", strict: "严格核查"};
 function renderSteps(job) {
   const enhance = !!job?.enhance;
-  const steps = enhance
+  const dynamic = !job?.staged;
+  const steps = dynamic
+    ? [{label: identityMode(job) === "off" ? "准备双眼取景" : "准备目标库"}, {label: "动态换脸", time: job?.times?.dynamic}, {label: "输出 SBS"}]
+    : enhance
     ? [
         {label: "透视导出", time: job?.times?.export},
         {label: "FaceFusion 换脸", time: job?.times?.swap},
@@ -263,7 +290,8 @@ function renderSteps(job) {
   if (job) {
     const stage = job.stage;
     const phase = job.progress?.phase;
-    if (stage === "export") current = 0;
+    if (stage === "dynamic") current = phase === "finalize" ? 2 : phase === "dynamic" ? 1 : 0;
+    else if (stage === "export") current = 0;
     else if (stage === "swap") current = enhance && ["face_enhancer", "merge", "audio"].includes(phase) ? 2 : 1;
     else if (stage === "refill") current = enhance ? 3 : 2;
     else if (stage === "done") current = steps.length;
@@ -284,7 +312,8 @@ function updateDetails(job, index, total) {
   const p = job.progress || {};
   const bar = $("frameProgress");
   const label = job.state === "paused" ? "已完成，等待下一步" : job.state === "done" ? "全部完成" :
-    (job.state === "error" ? "失败 · " : "步骤 " + (index + 1) + "/" + total + " · ") + (eyeName[p.eye] ? eyeName[p.eye] + " · " : "") + (phases[p.phase] || stageNames[job.stage]);
+    (job.state === "error" ? "失败 · " : "步骤 " + (index + 1) + "/" + total + " · ") + (eyeName[p.eye] ? eyeName[p.eye] + " · " : "") +
+    (p.phase === "reference" && identityMode(job) === "off" ? "准备双眼取景" : phases[p.phase] || stageNames[job.stage]);
   $("progressLabel").textContent = label;
   bar.hidden = job.state === "error" && !p.total;
   if (job.state === "done" || job.state === "paused") {
@@ -300,8 +329,17 @@ function updateDetails(job, index, total) {
   $("jobRange").textContent = "区间 " + (job.range?.join("–") || "—") + " · " + job.frames + " 帧";
   $("jobProvider").textContent = "推理设置 " + (job.provider || "—").toUpperCase();
   $("jobElapsed").textContent = "处理用时 " + (job.elapsed || 0).toFixed(1) + " 秒";
-  const fps = job.frames && job.elapsed ? job.frames / job.elapsed : 0;
+  const processed = job.stats ? job.stats.swapped + (job.stats.single_eye || 0) + job.stats.unchanged : (job.state === "done" ? job.frames : p.completed || 0);
+  const fps = job.elapsed ? processed / job.elapsed : 0;
   $("jobSpeed").textContent = fps >= .5 ? "处理速度 " + fps.toFixed(1) + " 帧/秒" : fps > 0 ? "处理速度 " + (1 / fps).toFixed(2) + " 秒/帧" : "";
+  $("stereoStats").hidden = job.staged;
+  const mode = identityMode(job);
+  const identity = identityLabels[mode];
+  if (job.stats) {
+    const singleEye = mode === "relaxed" ? " · 仅单眼换脸 " + (job.stats.single_eye || 0) + " 帧" : "";
+    $("stereoStats").textContent = identity + " · 双眼换脸 " + job.stats.swapped + " 帧" + singleEye + " · 补检成功 " + job.stats.recovered +
+      " 帧 · 保留原画 " + job.stats.unchanged + " 帧";
+  } else $("stereoStats").textContent = identity;
   const lines = job.logs || [];
   $("jobLog").hidden = !lines.length;
   const log = $("logLines");
@@ -340,7 +378,7 @@ function updateJob(job) {
   state.job = job;
   $("jobState").textContent = job.state === "error" ? "处理失败" : job.state === "paused" ? "等待下一步" : labels[job.stage];
   const current = renderSteps(job);
-  updateDetails(job, current, job.enhance ? 4 : 3);
+  updateDetails(job, current, job.staged && job.enhance ? 4 : 3);
   $("links").replaceChildren();
   $("results").hidden = false;
   $("output").hidden = !job.output;
@@ -398,7 +436,116 @@ function submitJob(url, data) {
 }
 const swapOptions = () => ({face: $("facePath").value.trim(), provider: $("provider").value, enhance: $("enhance").checked});
 const jobOptions = () => ({video: state.video, frame: state.frame, ...bounds(), boxes: state.selected.map(a => a.box), padding: number("padding"), ...swapOptions()});
-$("render").onclick = () => submitJob("/api/jobs", jobOptions());
+let fusionCatalog;
+const fusionSliders = () => $("fusionFields").querySelectorAll(".fusion-slider input");
+const fusionMargins = () => [...$("fusionFields").querySelectorAll(".fusion-margin input")];
+const checkboxes = id => [...$(id).querySelectorAll("input")];
+const checkedValues = id => checkboxes(id).filter(el => el.checked).map(el => el.value);
+
+function refreshFusion() {
+  $("fusionBox").hidden = !checkedValues("fusionMasks").includes("box");
+  $("fusionRegions").hidden = !checkedValues("fusionMasks").includes("region");
+  $("fusionWeight").hidden = $("fusionEnhancer").value !== "codeformer";
+  controls();
+}
+function fusionBoost(preferred) {
+  const sizes = fusionCatalog.swappers.find(m => m.name === $("fusionSwapper").value)?.sizes || [];
+  $("fusionBoost").replaceChildren(...sizes.map(size => new Option(size.replace("x", " × "), size)));
+  if (sizes.includes(preferred)) $("fusionBoost").value = preferred;
+}
+function resetFusion() {
+  const d = fusionCatalog.defaults;
+  $("fusionSwapper").value = d.face_swapper_model;
+  $("fusionEnhancer").value = d.face_enhancer_model;
+  fusionBoost(d.face_swapper_pixel_boost);
+  for (const input of fusionSliders()) {
+    input.value = d[input.id];
+    input.dispatchEvent(new Event("input"));
+  }
+  fusionMargins().forEach((input, i) => input.value = d.face_mask_padding[i]);
+  checkboxes("fusionMasks").forEach(input => input.checked = d.face_mask_types.includes(input.value));
+  checkboxes("fusionRegions").forEach(input => input.checked = d.face_mask_regions.includes(input.value));
+  checkboxes("fusionAngles").forEach(input => input.checked = d.face_detector_angles.includes(Number(input.value)));
+  refreshFusion();
+}
+function initFusion(catalog) {
+  fusionCatalog = catalog;
+  for (const [id, models] of [["fusionSwapper", catalog.swappers], ["fusionEnhancer", catalog.enhancers]]) {
+    $(id).replaceChildren(...models.map(model => {
+      const option = new Option(model.name + (model.available ? "" : " · 未安装"), model.name);
+      option.disabled = !model.available;
+      return option;
+    }));
+  }
+  for (const group of $("fusionFields").querySelectorAll(".fusion-slider")) {
+    const {key, label, unit = "", min, max, step} = group.dataset;
+    const name = document.createElement("label");
+    const value = document.createElement("output");
+    name.htmlFor = key;
+    name.append(label, value);
+    const input = document.createElement("input");
+    Object.assign(input, {type: "range", id: key, min, max, step});
+    input.oninput = () => { value.textContent = input.value + unit; };
+    group.append(name, input);
+  }
+  const names = ["皮肤", "左眉", "右眉", "左眼", "右眼", "眼镜", "鼻子", "口腔", "上唇", "下唇"];
+  catalog.defaults.face_mask_regions.forEach((region, i) => {
+    const label = document.createElement("label");
+    const input = Object.assign(document.createElement("input"), {type: "checkbox", value: region});
+    label.append(input, names[i] || region);
+    $("fusionRegions").append(label);
+  });
+  for (const input of checkboxes("fusionMasks")) input.disabled = catalog.masks[input.value] === false;
+  $("fusionSwapper").onchange = () => fusionBoost($("fusionBoost").value);
+  $("fusionEnhancer").onchange = $("fusionMasks").onchange = refreshFusion;
+  $("fusionAngles").onchange = event => {
+    if (!checkedValues("fusionAngles").length) event.target.checked = true;
+  };
+  $("fusionReset").onclick = resetFusion;
+  if (!catalog.swappers.some(model => model.available)) {
+    $("fusionNotice").hidden = false;
+    $("fusionNotice").textContent = "未安装换脸模型权重。";
+  }
+  resetFusion();
+}
+function fusionOptions() {
+  const margins = fusionMargins();
+  const invalid = margins.find(input => !input.checkValidity());
+  if (invalid) {
+    $("fusionBox").closest("details").open = true;
+    invalid.reportValidity();
+    throw new Error("遮罩内缩必须是 0–99 的整数");
+  }
+  return {
+    face_swapper_model: $("fusionSwapper").value, face_swapper_pixel_boost: $("fusionBoost").value,
+    face_enhancer_model: $("fusionEnhancer").value,
+    face_mask_types: checkedValues("fusionMasks"), face_mask_regions: checkedValues("fusionRegions"),
+    face_mask_padding: margins.map(input => Number(input.value)),
+    face_detector_angles: checkedValues("fusionAngles").map(Number),
+    ...Object.fromEntries([...fusionSliders()].map(input => [input.id, Number(input.value)]))
+  };
+}
+function submitRender(singleFrame = false) {
+  try {
+    const data = {...jobOptions(), identity_mode: $("identityMode").value};
+    if (isFusion) data.facefusion = fusionOptions();
+    if (singleFrame) data.start = data.end = data.frame;
+    submitJob("/api/jobs", data);
+  } catch (error) { notice(error.message, true); }
+}
+$("render").onclick = () => submitRender();
+$("fusionPreview").onclick = () => submitRender(true);
+if (isFusion) {
+  $("enhance").addEventListener("change", () => {
+    if ($("enhance").checked) $("fusionEnhancerSettings").open = true;
+    controls();
+  });
+  $("identityMode").addEventListener("change", controls);
+  request("/api/facefusion/options").then(initFusion).catch(error => {
+    $("fusionNotice").hidden = false;
+    $("fusionNotice").textContent = error.message;
+  });
+}
 $("renderHelp").onclick = () => {
   const target = renderRequirement()?.[1];
   if (!target) return;
@@ -441,4 +588,5 @@ if (lastJob) busy(async () => {
     sessionStorage.removeItem(jobKey);
   }
 });
+renderSteps(isTest ? {staged: true} : null);
 controls();

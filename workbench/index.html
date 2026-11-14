@@ -11,7 +11,7 @@
 <body>
 <header class="appbar">
   <div class="brand"><span class="mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="4"/><path d="M12 5v14M6.5 12h3m5 0h3"/></svg></span><div><strong>视差</strong><small>VR180 WORKBENCH</small></div></div>
-  <nav class="page-nav" aria-label="工作区"><a id="taskNav" href="/" aria-current="page">换脸任务</a><a id="testNav" href="/test">双目取景测试</a></nav>
+  <nav class="page-nav" aria-label="工作区"><a id="taskNav" href="/" aria-current="page">换脸任务</a><a id="fusionNav" href="/facefusion">FaceFusion</a><a id="testNav" href="/test">双目取景测试</a></nav>
   <div class="app-status"><span class="connection"><i></i><span id="health">连接中</span></span></div>
 </header>
 <main class="layout">
@@ -35,11 +35,56 @@
       <label for="provider">推理设备</label><select id="provider"><option value="cuda">CUDA · GPU</option><option value="cpu">CPU</option></select>
       <label class="split" for="padding">取景余量 <output id="padValue">1.8×</output></label><input id="padding" type="range" min="1.1" max="3" step=".1" value="1.8">
       <label class="toggle"><span>人脸增强</span><input id="enhance" type="checkbox"></label>
+      <div id="identitySetting">
+        <label class="split" for="identityMode">身份核查</label>
+        <select id="identityMode"><option value="off">无核查</option><option value="relaxed">宽松核查</option><option value="strict" selected>严格核查</option></select>
+      </div>
     </section>
     <div class="run" id="formalActions">
       <button id="render" class="primary" aria-describedby="renderHint" disabled><svg viewBox="0 0 24 24"><path d="m8 5 12 7-12 7Z"/></svg> 开始换脸</button>
       <div class="run-status"><span id="renderHint" role="status">请先载入目标视频</span><button id="renderHelp" class="quiet" type="button" hidden></button></div>
     </div>
+  </aside>
+  <aside id="fusionSettings" class="fusion-settings" aria-label="FaceFusion 参数" hidden>
+    <div class="result-head"><h2>FaceFusion 参数</h2><button id="fusionReset" class="quiet icon-button" type="button" title="恢复默认参数" aria-label="恢复默认参数"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 1 2.6 6.4M3 4v8h8"/></svg></button></div>
+    <p id="fusionNotice" class="notice error" role="status" hidden></p>
+    <fieldset id="fusionFields" disabled>
+      <details open><summary>换脸 · Face Swapper</summary>
+        <label for="fusionSwapper">换脸模型</label><select id="fusionSwapper"></select>
+        <label for="fusionBoost">像素增强尺寸</label><select id="fusionBoost"></select>
+      </details>
+      <details id="fusionEnhancerSettings"><summary>增强 · Face Enhancer</summary>
+        <label for="fusionEnhancer">增强模型</label><select id="fusionEnhancer"></select>
+        <div class="fusion-slider" data-key="face_enhancer_blend" data-label="增强混合比例" data-unit="%" data-min="0" data-max="100" data-step="1"></div>
+        <div class="fusion-slider" id="fusionWeight" data-key="face_enhancer_weight" data-label="增强权重" data-min="0" data-max="1" data-step=".05" hidden></div>
+      </details>
+      <details open><summary>遮罩 · Face Masker</summary>
+        <div class="fusion-checks" id="fusionMasks" role="group" aria-label="遮罩类型">
+          <label><input type="checkbox" value="box">边框</label><label><input type="checkbox" value="occlusion">遮挡</label><label><input type="checkbox" value="region">区域</label>
+        </div>
+        <div id="fusionBox">
+          <div class="fusion-slider" data-key="face_mask_blur" data-label="遮罩边缘模糊" data-min="0" data-max="1" data-step=".05"></div>
+          <div class="fusion-margin" role="group" aria-label="遮罩内缩（%）">
+            <label>上 (%)<input type="number" min="0" max="99" step="1" required></label>
+            <label>右 (%)<input type="number" min="0" max="99" step="1" required></label>
+            <label>下 (%)<input type="number" min="0" max="99" step="1" required></label>
+            <label>左 (%)<input type="number" min="0" max="99" step="1" required></label>
+          </div>
+        </div>
+        <div class="fusion-checks" id="fusionRegions" role="group" aria-label="遮罩区域" hidden></div>
+      </details>
+      <details><summary>检测与身份 · Detection</summary>
+        <label id="fusionAnglesLabel" class="split">人脸检测角度</label>
+        <div class="fusion-checks" id="fusionAngles" role="group" aria-labelledby="fusionAnglesLabel">
+          <label><input type="checkbox" value="0" checked>0°</label><label><input type="checkbox" value="90">90°</label>
+          <label><input type="checkbox" value="180">180°</label><label><input type="checkbox" value="270">270°</label>
+        </div>
+        <div class="fusion-slider" data-key="vr_detector_score" data-label="YOLO180 粗检阈值" data-min=".05" data-max=".95" data-step=".01"></div>
+        <div class="fusion-slider" data-key="face_detector_score" data-label="透视精检阈值" data-min=".05" data-max=".95" data-step=".01"></div>
+        <div class="fusion-slider" data-key="face_landmarker_score" data-label="关键点阈值" data-min="0" data-max="1" data-step=".05"></div>
+        <div class="fusion-slider" data-key="reference_face_distance" data-label="参考脸距离上限" data-min=".01" data-max="1.5" data-step=".01"></div>
+      </details>
+    </fieldset>
   </aside>
   <div class="workspace">
     <div class="title"><div><p class="eyebrow" id="pageLabel">PRODUCTION</p><h2 id="viewerTitle">目标确认</h2></div><span id="videoInfo" class="badge">未载入素材</span></div>
@@ -63,12 +108,13 @@
       <p id="testHint" role="status" class="hint-line"></p>
     </section>
     <section class="result" aria-labelledby="resultTitle">
-      <div class="result-head"><h2 id="resultTitle">处理输出</h2><span class="badge" id="jobState">等待任务</span></div>
-      <ol id="steps"><li>透视导出</li><li>FaceFusion 换脸</li><li>球面回填</li></ol>
+      <div class="result-head"><h2 id="resultTitle">处理输出</h2><div class="result-actions"><button id="fusionPreview" type="button" class="secondary" disabled hidden>试跑参考帧</button><span class="badge" id="jobState">等待任务</span></div></div>
+      <ol id="steps"><li>准备目标库</li><li>双眼动态换脸</li><li>输出 SBS</li></ol>
       <div id="jobDetails" class="job-details" hidden>
         <div class="progress-heading"><label id="progressLabel" for="frameProgress">当前步骤</label><span id="frameCount"></span></div>
         <progress id="frameProgress" max="100"></progress>
         <div class="job-metrics"><span id="jobRange"></span><span id="jobProvider"></span><span id="jobElapsed"></span><span id="jobSpeed"></span></div>
+        <div class="job-metrics" id="stereoStats" hidden></div>
         <figure id="livePreview" class="live-preview" hidden><figcaption><strong>已处理帧</strong><span id="liveCaption"></span></figcaption><img id="liveImage" alt="最近完成的处理帧"></figure>
         <details id="jobLog" class="job-log" hidden><summary>处理日志</summary><pre id="logLines" tabindex="0"></pre></details>
       </div>

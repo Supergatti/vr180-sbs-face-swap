@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """下载本工作台专有的 VR180 粗检测模型。
 
-FaceFusion 自身的模型（inswapper / gfpgan / yoloface 等）会在首次 headless-run 时
-由 FaceFusion 自动下载，无需在此处理。这里只负责 FaceFusion 没有的
+FaceFusion 自身的模型由 bootstrap.py 准备。这里只负责 FaceFusion 没有的
 `yoloface_12n-vr180.onnx`。
 
 来源：https://github.com/Glat0s/yolo-face/releases/tag/vr

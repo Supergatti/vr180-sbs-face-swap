@@ -15,6 +15,7 @@ from typing import Tuple
 import cv2
 import numpy as np
 
+import facefusion_runtime
 
 
 # ---------------------------------------------------------------------------
@@ -605,7 +606,8 @@ def _facefusion_headless_run(
     reference_frame: int = 0,
     progress=None,
 ) -> None:
-    repo_root = Path(os.environ.get('FACEFUSION_HOME') or Path(__file__).resolve().parents[1])
+    facefusion_runtime.configure()
+    repo_root = facefusion_runtime.HOME
     facefusion_entry = repo_root / 'facefusion.py'
 
     processors = ['face_swapper']

@@ -64,7 +64,7 @@ index f03674a..5289585 100644
  from facefusion.filesystem import remove_file
  from facefusion.temp_helper import get_temp_file_path, get_temp_frame_paths, get_temp_frames_pattern
  from facefusion.typing import AudioBuffer, Fps, OutputVideoPreset, UpdateProgress
- from facefusion.vision import count_trim_frame_total, detect_image_resolution, detect_video_duration, pack_resolution, restrict_video_fps
+ from facefusion.vision import count_trim_frame_total, detect_video_duration, restrict_video_fps
  
  
 -def run_ffmpeg_with_progress(args: List[str], update_progress : UpdateProgress) -> subprocess.Popen[bytes]:
